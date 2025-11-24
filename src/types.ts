@@ -26,6 +26,9 @@ export interface Product {
   price: number;
   image: string;
   description: string;
+  condition?: 'New' | 'Used';
+  fuelType?: 'Petrol' | 'Electric';
+  stock?: number; // Inventory tracking
   specs?: {
     engine?: string;
     power?: string;
@@ -45,5 +48,6 @@ export interface Order {
   items: CartItem[];
   total: number;
   date: number;
-  status: 'pending' | 'completed';
+  status: 'pending' | 'processing' | 'shipped' | 'completed' | 'cancelled';
+
 }

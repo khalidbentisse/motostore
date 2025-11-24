@@ -40,6 +40,9 @@ const App = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Search Bar State
+  const [isSearchCollapsed, setIsSearchCollapsed] = useState(false);
+
   // --- Effects for Data Fetching ---
   useEffect(() => {
     // Initialize Lenis Smooth Scroll
@@ -96,7 +99,25 @@ const App = () => {
         setIsLoading(false);
       }
     };
+
     loadData();
+
+    // Real-time subscriptions
+    const ordersSubscription = supabase
+      .channel('public:orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        console.log('Orders updated, refreshing...');
+        supabaseService.getOrders().then(setOrders);
+      })
+      .subscribe();
+
+    const productsSubscription = supabase
+      .channel('public:products')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+        console.log('Products updated, refreshing...');
+        supabaseService.getProducts().then(setAllProducts);
+      })
+      .subscribe();
 
     // Check for admin hash
     if (window.location.hash === '#admin') {
@@ -167,6 +188,7 @@ const App = () => {
     setView(page);
     if (page !== 'shop') setSelectedCategory(undefined);
     window.scrollTo(0, 0);
+    setIsSearchCollapsed(false); // Reset search state on nav
   }
 
   const handleCategorySelect = (cat: string) => {
@@ -188,30 +210,33 @@ const App = () => {
     };
 
     // 1. Save Order to Supabase
-    const savedOrder = await supabaseService.addOrder(newOrder);
+    const { data: savedOrder, error } = await supabaseService.addOrder(newOrder);
     if (savedOrder) {
       setOrders(prev => [savedOrder, ...prev]);
     } else {
-      alert("Failed to save order to database. Proceeding to WhatsApp anyway.");
+      alert(`Failed to save order to database: ${error}. Proceeding to WhatsApp anyway.`);
     }
 
     // 2. Create WhatsApp Link
     const itemSummary = cart.map(i => `- ${i.quantity}x ${i.name}`).join('%0a');
-    const waMessage = `*New Order from MotoVerse!* 🏍️%0a%0a*Customer:* ${name}%0a*Phone:* ${phone}%0a*Address:* ${address}%0a%0a*Order Details:*%0a${itemSummary}%0a%0a*Total:* ${newOrder.total.toLocaleString()} MAD`;
-    const waLink = `https://wa.me/1234567890?text=${waMessage}`; // Replace with your number
+    const waMessage = `*New Order from MotoVerse!* 🏍️%0a%0a*Customer Details:*%0aName: ${name}%0aPhone: ${phone}%0aAddress: ${address}%0a%0a*Order Summary:*%0a${itemSummary}%0a%0a*Total Amount:* ${newOrder.total.toLocaleString()} MAD`;
+    const waLink = `https://wa.me/212770370033?text=${waMessage}`;
 
     // 3. Clear Cart & Redirect
     setCart([]);
     setView('home');
-    window.open(waLink, '_blank');
-    alert("Order placed! Redirecting to WhatsApp...");
+
+    // Use location.href to avoid popup blockers
+    window.location.href = waLink;
   };
 
   const addProduct = async (p: Product) => {
     const saved = await supabaseService.addProduct(p);
     if (saved) {
       setAllProducts(prev => [...prev, saved]);
+      return saved;
     }
+    return null;
   };
 
   const updateProduct = async (updated: Product) => {
@@ -228,16 +253,42 @@ const App = () => {
     }
   };
 
+  const updateOrder = async (id: string, status: any) => {
+    const success = await supabaseService.updateOrderStatus(id, status);
+    if (success) {
+      setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
+    }
+    return success;
+  };
+
+  const deleteOrder = async (id: string) => {
+    const success = await supabaseService.deleteOrder(id);
+    if (success) {
+      setOrders(prev => prev.filter(o => o.id !== id));
+    }
+    return success;
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { error } = await supabase.auth.signInWithPassword({
+    console.log('Attempting login with:', email);
+
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+
     if (error) {
+      console.error('Login error:', error);
       alert(error.message);
     } else {
-      setView('dashboard');
+      console.log('Login successful:', data);
+      // The onAuthStateChange listener should handle the view switch, 
+      // but we can force it here to be sure if the listener is slow
+      if (data.session) {
+        setSession(data.session);
+        setView('dashboard');
+      }
     }
   };
 
@@ -275,7 +326,9 @@ const App = () => {
   }
 
   if (view === 'dashboard') {
+    console.log('Rendering Dashboard view. Session:', session);
     if (!session) {
+      console.log('No session, redirecting to login');
       setView('login');
       return null;
     }
@@ -285,6 +338,8 @@ const App = () => {
       onAddProduct={addProduct}
       onUpdateProduct={updateProduct}
       onDeleteProduct={deleteProduct}
+      onUpdateOrder={updateOrder}
+      onDeleteOrder={deleteOrder}
       onLogout={async () => {
         await supabase.auth.signOut();
         setView('home');
@@ -294,7 +349,7 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-moto-black text-white font-sans selection:bg-moto-red selection:text-white">
-      <Navbar cartCount={cartCount} onNavigate={handleNavigate} currentPage={view} />
+      <Navbar cartCount={cartCount} onNavigate={handleNavigate} currentPage={view} showSearchIcon={isSearchCollapsed && view === 'shop'} />
 
       <main>
         {view === 'home' && (
@@ -309,31 +364,51 @@ const App = () => {
           </>
         )}
 
-        {view === 'shop' && <Shop products={allProducts} onAddToCart={addToCart} initialCategory={selectedCategory} />}
+        {view === 'shop' && <Shop products={allProducts} onAddToCart={addToCart} initialCategory={selectedCategory} onSearchCollapse={setIsSearchCollapsed} />}
         {view === 'cart' && <CartView items={cart} onUpdateQty={updateQty} onRemove={removeFromCart} onCheckout={() => setView('checkout')} />}
         {view === 'checkout' && <CheckoutView items={cart} onConfirm={processCheckout} />}
         {view === 'contact' && <Contact />}
         {view === 'about' && <About />}
       </main>
 
-      <footer className="bg-moto-dark border-t border-gray-800 py-12">
-        <div className="max-w-7xl mx-auto px-4 text-center">
-          <h1 className="text-2xl font-black tracking-tighter uppercase italic text-gray-700 mb-6">
-            Moto<span className="text-gray-600">Verse</span>
+      <footer className="bg-moto-black border-t border-white/5 py-20 relative overflow-hidden">
+        {/* Ambient Glow */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-3xl h-1 bg-gradient-to-r from-transparent via-moto-red/50 to-transparent blur-sm"></div>
+
+        <div className="max-w-7xl mx-auto px-6 relative z-10 flex flex-col items-center text-center">
+          {/* Brand Mark */}
+          <h1 className="text-4xl md:text-5xl font-black tracking-tighter uppercase italic text-white/10 mb-10 select-none">
+            Moto<span className="text-moto-red/20">Verse</span>
           </h1>
-                    <p className="text-gray-600 text-sm mb-8">
-            &copy; 2024 MotoVerse. All rights reserved. <br />
-            Designed by{" "}
+
+          {/* Main Footer Text */}
+          <div className="flex flex-col md:flex-row items-center gap-y-4 gap-x-8 text-[10px] md:text-xs font-bold tracking-[0.2em] text-gray-500 uppercase">
+            <span className="hover:text-white transition-colors duration-500 cursor-default">© 2024 MotoVerse</span>
+
+            {/* Separator */}
+            <span className="hidden md:block w-1 h-1 bg-moto-red rounded-full shadow-[0_0_10px_var(--color-moto-red)]"></span>
+
+            {/* Manifesto / Motto */}
+            <span className="text-gray-400 italic tracking-widest">"Adrenaline in Every Gear"</span>
+
+            {/* Separator */}
+            <span className="hidden md:block w-1 h-1 bg-moto-red rounded-full shadow-[0_0_10px_var(--color-moto-red)]"></span>
+
+            <span className="hover:text-white transition-colors duration-500 cursor-default">All Rights Reserved</span>
+          </div>
+
+          {/* Designer Credit - Cinematic/Tech feel */}
+          <div className="mt-12 flex items-center gap-3 text-[9px] tracking-[0.3em] text-gray-700 uppercase group">
+            <span className="group-hover:text-gray-500 transition-colors duration-300">Architected by</span>
             <a
               href="https://khalidbentisse.42web.io"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-red-500 hover:uppercase hover:underline"
+              className="text-moto-red hover:text-white transition-colors duration-300 font-black border-b border-transparent hover:border-moto-red pb-0.5"
             >
-              khalid bentisse
-            </a>.
-          </p>
-
+              Khalid Bentisse
+            </a>
+          </div>
         </div>
       </footer>
     </div>

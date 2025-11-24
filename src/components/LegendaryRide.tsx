@@ -1,30 +1,136 @@
-import React, { useState, useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
+import gsap from 'gsap';
 
 export const LegendaryRide: React.FC = () => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const cardRef = useRef<HTMLDivElement>(null);
-    const [rotation, setRotation] = useState({ x: 0, y: 0 });
-    const [isHovered, setIsHovered] = useState(false);
+    const glossRef = useRef<HTMLDivElement>(null);
+    const contentRef = useRef<HTMLDivElement>(null);
+    const imageRef = useRef<HTMLImageElement>(null);
+    const titleRef = useRef<HTMLDivElement>(null);
 
-    const handleMouseMove = (e: React.MouseEvent) => {
-        if (!cardRef.current || window.innerWidth < 768) return; // 7bs ftelephone
+    useEffect(() => {
+        const card = cardRef.current;
+        const container = containerRef.current;
+        const gloss = glossRef.current;
+        const content = contentRef.current;
+        const image = imageRef.current;
+        const title = titleRef.current;
 
-        const rect = cardRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        if (!card || !container || !gloss || !content || !image || !title) return;
 
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
+        // GSAP Context for easy cleanup
+        const ctx = gsap.context(() => {
+            // Set initial transform perspective
+            gsap.set(container, { perspective: 1000 });
+            gsap.set(card, { transformStyle: "preserve-3d", transformOrigin: "center center" });
+            gsap.set(content, { transformStyle: "preserve-3d" });
 
-        const rotateX = ((y - centerY) / centerY) * -15;
-        const rotateY = ((x - centerX) / centerX) * 15;
+            // Mouse move handler
+            const onMouseMove = (e: MouseEvent) => {
+                if (window.innerWidth < 768) return;
 
-        setRotation({ x: rotateX, y: rotateY });
-    };
+                const rect = card.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
 
-    const handleMouseLeave = () => {
-        setRotation({ x: 0, y: 0 });
-        setIsHovered(false);
-    };
+                const mouseX = e.clientX - centerX;
+                const mouseY = e.clientY - centerY;
+
+                // Calculate rotation (Inverted Tilt: move towards cursor)
+                // Max rotation ±12deg as requested
+                const rotateX = (mouseY / (rect.height / 2)) * -12;
+                const rotateY = (mouseX / (rect.width / 2)) * 12;
+
+                // Gloss movement calculation
+                // Shift gloss opposite to mouse or tracking mouse for reflection effect
+                // We'll track mouse to simulate a light source moving with the cursor
+                const glossX = (mouseX / (rect.width / 2)) * 100;
+                const glossY = (mouseY / (rect.height / 2)) * 100;
+
+                // Apply transforms with GSAP for performance
+                gsap.to(card, {
+                    rotationX: rotateX,
+                    rotationY: rotateY,
+                    duration: 0.4,
+                    ease: "power2.out",
+                    overwrite: "auto"
+                });
+
+                // Parallax effects for inner elements
+                gsap.to(image, {
+                    x: mouseX * 0.05,
+                    y: mouseY * 0.05,
+                    duration: 0.4,
+                    ease: "power2.out"
+                });
+
+                gsap.to(title, {
+                    x: mouseX * 0.02,
+                    y: mouseY * 0.02,
+                    duration: 0.4,
+                    ease: "power2.out"
+                });
+
+                // Gloss effect
+                gsap.to(gloss, {
+                    x: `${glossX}%`,
+                    y: `${glossY}%`,
+                    opacity: 0.6, // Reveal gloss on hover
+                    duration: 0.4,
+                    ease: "power2.out"
+                });
+            };
+
+            // Mouse leave handler
+            const onMouseLeave = () => {
+                // Soft Return Animation: Spring physics
+                gsap.to(card, {
+                    rotationX: 0,
+                    rotationY: 0,
+                    duration: 1.2,
+                    ease: "elastic.out(1, 0.5)", // Low damping, medium tension
+                    overwrite: "auto"
+                });
+
+                // Reset inner elements
+                gsap.to([image, title], {
+                    x: 0,
+                    y: 0,
+                    duration: 1.2,
+                    ease: "elastic.out(1, 0.5)"
+                });
+
+                // Hide gloss
+                gsap.to(gloss, {
+                    opacity: 0,
+                    duration: 0.5,
+                    ease: "power2.out"
+                });
+            };
+
+            // Mouse enter handler (optional, for initial state setup if needed)
+            const onMouseEnter = () => {
+                // Scale up slightly on hover for that "active" feel
+                gsap.to(card, {
+                    scale: 1.02,
+                    duration: 0.3,
+                    ease: "power2.out"
+                });
+            };
+
+            // Add event listeners to the container or card
+            // Using container for broader hit area if needed, but card is specific
+            card.addEventListener('mousemove', onMouseMove);
+            card.addEventListener('mouseleave', onMouseLeave);
+            card.addEventListener('mouseenter', onMouseEnter);
+
+            // Cleanup function for listeners is handled by return of useEffect, 
+            // but we can also remove them here if we wanted to be explicit in context
+        }, containerRef); // Scope to container
+
+        return () => ctx.revert(); // Cleanup GSAP context
+    }, []);
 
     return (
         <div className="py-24 bg-moto-black overflow-hidden relative">
@@ -57,40 +163,45 @@ export const LegendaryRide: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* 3D Tilt Card */}
-                    <div className="flex-1 perspective-1000 w-full flex justify-center">
+                    {/* 3D Tilt Card Container */}
+                    <div ref={containerRef} className="flex-1 w-full flex justify-center perspective-1000">
                         <div
                             ref={cardRef}
-                            onMouseMove={handleMouseMove}
-                            onMouseEnter={() => setIsHovered(true)}
-                            onMouseLeave={handleMouseLeave}
-                            className="relative w-full max-w-md h-[400px] md:h-[500px] transition-transform duration-100 ease-out preserve-3d cursor-pointer"
-                            style={{
-                                transform: `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) scale3d(${isHovered ? 1.05 : 1}, ${isHovered ? 1.05 : 1}, 1)`
-                            }}
+                            className="relative w-full max-w-md h-[400px] md:h-[500px] cursor-pointer will-change-transform"
                         >
-                            <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-black rounded-2xl border border-gray-700 shadow-2xl overflow-hidden preserve-3d group">
+                            <div ref={contentRef} className="absolute inset-0 bg-gradient-to-br from-gray-800 to-black rounded-2xl border border-gray-700 shadow-2xl overflow-hidden group">
+                                {/* Carbon Fiber Texture */}
                                 <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30"></div>
 
-                                <div className="h-3/4 overflow-hidden preserve-3d">
+                                {/* Image Layer */}
+                                <div className="h-3/4 overflow-hidden relative z-10">
                                     <img
+                                        ref={imageRef}
                                         src="https://wniwqxfeprjcjertvwug.supabase.co/storage/v1/object/public/images/0.45964625825302763.png"
-                                        className="w-full h-full object-cover transform translate-z-10 group-hover:scale-110 transition-transform duration-700"
-                                        style={{ transform: 'translateZ(20px)' }}
+                                        className="w-full h-full object-cover scale-110" // Initial scale to allow for parallax movement
                                         alt="Ninja H2"
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-80"></div>
                                 </div>
 
-                                <div className="absolute bottom-8 left-8 preserve-3d" style={{ transform: 'translateZ(60px)' }}>
-                                    <h3 className="text-2xl md:text-3xl font-black text-white italic uppercase">Ninja H2 Carbon</h3>
-                                    <div className="h-1 w-12 bg-moto-red mt-2"></div>
+                                {/* Text Content Layer */}
+                                <div ref={titleRef} className="absolute bottom-8 left-8 z-20">
+                                    <h3 className="text-2xl md:text-3xl font-black text-white italic uppercase drop-shadow-lg">Ninja H2 Carbon</h3>
+                                    <div className="h-1 w-12 bg-moto-red mt-2 shadow-[0_0_10px_rgba(255,0,0,0.5)]"></div>
                                 </div>
 
+                                {/* Gloss Layer */}
                                 <div
-                                    className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/10 to-white/0 pointer-events-none"
+                                    ref={glossRef}
+                                    className="absolute inset-0 pointer-events-none z-30 opacity-0"
                                     style={{
-                                        transform: `translateX(${rotation.y * 2}px) translateY(${rotation.x * 2}px)`
+                                        background: 'radial-gradient(circle at center, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0) 60%)',
+                                        mixBlendMode: 'overlay',
+                                        transform: 'translate(-50%, -50%)', // Center the gradient on its coordinate
+                                        width: '200%', // Make it large enough to cover
+                                        height: '200%',
+                                        top: '-50%',
+                                        left: '-50%'
                                     }}
                                 ></div>
                             </div>
@@ -99,5 +210,5 @@ export const LegendaryRide: React.FC = () => {
                 </div>
             </div>
         </div>
-    )
+    );
 };

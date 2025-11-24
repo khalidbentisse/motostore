@@ -5,12 +5,14 @@ interface NavbarProps {
     cartCount: number;
     onNavigate: (page: string) => void;
     currentPage: string;
+    showSearchIcon?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
     cartCount,
     onNavigate,
-    currentPage
+    currentPage,
+    showSearchIcon
 }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -61,8 +63,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
                     </div>
 
-                    {/* Cart Icon */}
-                    <div className="flex items-center">
+                    {/* Cart Icon & Search Icon */}
+                    <div className="flex items-center gap-4">
+                        {/* Collapsed Search Icon */}
+                        {showSearchIcon && (
+                            <button
+                                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                                className="relative p-3 text-gray-400 hover:text-white transition-colors group border border-transparent hover:border-moto-red/30 rounded-lg hover:bg-moto-red/5 animate-fade-in"
+                            >
+                                <div className="group-hover:scale-110 transition-transform">
+                                    <Icons.Search className="w-5 h-5" />
+                                </div>
+                            </button>
+                        )}
+
                         <button
                             onClick={() => handleNav('cart')}
                             className="relative p-3 text-gray-400 hover:text-white transition-colors group border border-transparent hover:border-moto-red/30 rounded-lg hover:bg-moto-red/5"

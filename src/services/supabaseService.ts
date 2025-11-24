@@ -21,15 +21,10 @@ export const supabaseService = {
     },
 
     async addProduct(product: Product): Promise<Product | null> {
-        // Ensure specs is a plain object for JSONB or stringified for text
         const productToSave = {
             ...product,
-            specs: product.specs // Supabase handles JSONB automatically usually
+            specs: product.specs
         };
-
-        // Remove id if it's a placeholder (optional, depending on if DB generates IDs)
-        // For now, we'll keep the ID generation client-side or let Supabase handle it if we omit it.
-        // Let's try to upsert or insert.
 
         const { data, error } = await supabase
             .from('products')
@@ -72,6 +67,32 @@ export const supabaseService = {
         return true;
     },
 
+    async updateStock(productId: string, quantity: number): Promise<boolean> {
+        const { data: product, error: fetchError } = await supabase
+            .from('products')
+            .select('stock')
+            .eq('id', productId)
+            .single();
+
+        if (fetchError || !product) {
+            console.error('Error fetching product for stock update:', fetchError);
+            return false;
+        }
+
+        const newStock = Math.max(0, (product.stock || 0) - quantity);
+
+        const { error: updateError } = await supabase
+            .from('products')
+            .update({ stock: newStock })
+            .eq('id', productId);
+
+        if (updateError) {
+            console.error('Error updating stock:', updateError);
+            return false;
+        }
+        return true;
+    },
+
     // --- Orders ---
     async getOrders(): Promise<Order[]> {
         const { data, error } = await supabase
@@ -83,21 +104,89 @@ export const supabaseService = {
             console.error('Error fetching orders:', error);
             return [];
         }
-        return data as Order[];
+
+        // Map snake_case from DB to camelCase for App
+        return data.map((o: any) => ({
+            id: o.id,
+            customerName: o.customer_name,
+            customerPhone: o.customer_phone,
+            customerAddress: o.customer_address,
+            items: o.items,
+            total: o.total,
+            date: o.date,
+            status: o.status,
+
+
+        })) as Order[];
     },
 
-    async addOrder(order: Order): Promise<Order | null> {
+    async addOrder(order: Order): Promise<{ data: Order | null, error: string | null }> {
+        // Map camelCase to snake_case for DB
+        const dbOrder = {
+            id: order.id,
+            customer_name: order.customerName,
+            customer_phone: order.customerPhone,
+            customer_address: order.customerAddress,
+            items: order.items,
+            total: order.total,
+            date: order.date,
+            status: order.status,
+
+
+        };
+
         const { data, error } = await supabase
             .from('orders')
-            .insert([order])
+            .insert([dbOrder])
             .select()
             .single();
 
         if (error) {
             console.error('Error adding order:', error);
-            return null;
+            return { data: null, error: error.message };
         }
-        return data as Order;
+
+        // Map back to camelCase for app usage
+        const appOrder: Order = {
+            id: data.id,
+            customerName: data.customer_name,
+            customerPhone: data.customer_phone,
+            customerAddress: data.customer_address,
+            items: data.items,
+            total: data.total,
+            date: data.date,
+            status: data.status,
+
+
+        };
+
+        return { data: appOrder, error: null };
+    },
+
+    async updateOrderStatus(orderId: string, status: 'pending' | 'processing' | 'shipped' | 'completed' | 'cancelled'): Promise<boolean> {
+        const { error } = await supabase
+            .from('orders')
+            .update({ status })
+            .eq('id', orderId);
+
+        if (error) {
+            console.error('Error updating order status:', error);
+            return false;
+        }
+        return true;
+    },
+
+    async deleteOrder(orderId: string): Promise<boolean> {
+        const { error } = await supabase
+            .from('orders')
+            .delete()
+            .eq('id', orderId);
+
+        if (error) {
+            console.error('Error deleting order:', error);
+            return false;
+        }
+        return true;
     },
 
     // --- Storage ---
